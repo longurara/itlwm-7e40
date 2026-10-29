@@ -1,0 +1,67 @@
+name: Build itlwm 7E40 (Killer AX1675i Meteor Lake)
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Clone MacKernelSDK
+        run: |
+          if [ ! -d "MacKernelSDK/Headers" ]; then
+            rm -rf MacKernelSDK
+            git clone --depth=1 https://github.com/acidanthera/MacKernelSDK.git MacKernelSDK
+          fi
+
+      - name: Generate FwBinary.cpp (ma-b0-gf-a0-83 + pnvm)
+        run: |
+          rm -f include/FwBinary.cpp
+          python3 scripts/zlib_compress_fw.py include/FwBinary.cpp itlwm/firmware
+          ls -lh itlwm/firmware include/FwBinary.cpp
+
+      - name: Build itlwm.kext (Release)
+        run: |
+          xcodebuild -project itlwm.xcodeproj \
+            -scheme itlwm \
+            -configuration Release \
+            -derivedDataPath build \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=NO \
+            GIT_COMMIT="_7e40" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build itlwm.kext (Debug)
+        run: |
+          xcodebuild -project itlwm.xcodeproj \
+            -scheme itlwm \
+            -configuration Debug \
+            -derivedDataPath build \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=NO \
+            GIT_COMMIT="_7e40-dbg" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package Release + Debug kexts and HeliPort
+        run: |
+          mkdir -p dist/Release dist/Debug
+          cp -R build/Build/Products/Release/itlwm.kext dist/Release/itlwm.kext
+          cp -R build/Build/Products/Debug/itlwm.kext dist/Debug/itlwm.kext
+          ditto -c -k --sequesterRsrc --keepParent dist/Release/itlwm.kext dist/itlwm-7e40-Release.zip
+          ditto -c -k --sequesterRsrc --keepParent dist/Debug/itlwm.kext dist/itlwm-7e40-Debug.zip
+          curl -L -o dist/HeliPort.dmg https://github.com/OpenIntelWireless/HeliPort/releases/latest/download/HeliPort.dmg
+          du -sh dist/Release/itlwm.kext dist/Debug/itlwm.kext dist/*.zip dist/HeliPort.dmg
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: itlwm-7e40-AX1675i
+          path: dist/
